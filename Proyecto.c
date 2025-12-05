@@ -14,6 +14,11 @@
 #define NUM_CEPAS 50            //numero de variantes del virus
 #define HASH_SIZE 2053          //tamanio de la tabla hash (numero primo)
 #define ALPHABET_SIZE 26        //letras del alfabeto para el trie
+//estados posibles de un individuo
+#define ESTADO_SANO 0
+#define ESTADO_INFECTADO 1
+#define ESTADO_RECUPERADO 2
+#define ESTADO_FALLECIDO 3
 
 //estructura para representar un contacto entre dos individuos
 typedef struct Contacto{
@@ -186,6 +191,21 @@ enum TerritoriosIdx {
     FINLANDIA, SUECIA, DINAMARCA, ALEMANIA, FRANCIA, ESPANA, PORTUGAL, ITALIA, EUA, REINO_UNIDO
 };
 
+//estructura para almacenar estado por dia (memoizacion)
+typedef struct {
+    int estado;           //SANO, INFECTADO, RECUPERADO, FALLECIDO
+    int dia_infeccion;    //dia en que se infecto (-1 si nunca)
+    int cepa_id;          //cepa con la que se infecto
+} EstadoDP;
+
+//tabla dp para almacenar estados por dia
+typedef struct {
+    EstadoDP **tabla;     //tabla[dia][individuo]
+    int num_dias;
+    int num_individuos;
+    Individuo **individuos_lista;  //lista plana de punteros a individuos
+} TablaDP;
+
 //variable global para generar ids unicos
 int IDs = 0;
 
@@ -217,7 +237,6 @@ void AgregarContacto(Individuo *ind1, Individuo *ind2, float prob);
 int ExisteContacto(Individuo *ind, int id_otro);
 
 //funciones de ordenamiento - o(n log n)
-void OrdenarPorRiesgo(Mapa *grafo);
 void OrdenarPorGrado(Mapa *grafo);
 //ordena individuos por territorio de origen
 void OrdenarPorTerritorio(Mapa *grafo);
@@ -254,7 +273,7 @@ void Propagar_Contagio(Mapa *grafo);
 void ActualizarEstados(Mapa *grafo, int dia_actual);
 //muestra las estadisticas de un dia especifico
 void MostrarEstadoDia(Mapa *grafo, int dia);
-void GenerarReportePropagacion(Mapa *grafo, int dia_actual);
+void GenerarReportePropagacion(TablaDP *dp, Mapa *grafo, int dia_final);
 //cuenta el numero de infectados activos en todo el sistema
 int ContarInfectadosActivos(Mapa *grafo);
 
@@ -1419,6 +1438,7 @@ void MostrarEstadisticasBrotes(Mapa *grafo){
 //propagacion temporal del contagio
 //=============================================================
 
+
 //cuenta el numero de infectados activos en todo el sistema
 int ContarInfectadosActivos(Mapa *grafo){
     int infectados = 0;
@@ -1433,131 +1453,186 @@ int ContarInfectadosActivos(Mapa *grafo){
     return infectados;
 }
 
-//propaga el contagio de infectados a sus contactos sanos
-void Propagar_Contagio(Mapa *grafo){
-    #define MAX_CONTAGIOS_DIA 100
+//crear tabla dp para memoizacion
+TablaDP* CrearTablaDP(Mapa *grafo, int num_dias){
+    TablaDP *dp = (TablaDP*)malloc(sizeof(TablaDP));
+    dp->num_dias = num_dias + 1;
     
-    int num_nuevos = 0;
+    //contar individuos totales
+    int total = 0;
+    for(int t = 0; t < NUM_TERRITORIOS; t++){
+        total += grafo->territorios[t].num_individuos;
+    }
+    dp->num_individuos = total;
     
-    for(int t = 0; t < NUM_TERRITORIOS && num_nuevos < MAX_CONTAGIOS_DIA; t++){
+    //crear lista plana de individuos para acceso O(1) por indice
+    dp->individuos_lista = (Individuo**)malloc(total * sizeof(Individuo*));
+    int idx = 0;
+    for(int t = 0; t < NUM_TERRITORIOS; t++){
         Territorio *territorio = &grafo->territorios[t];
+        for(int i = 0; i < territorio->num_individuos; i++){
+            if(territorio->individuos[i] != NULL){
+                dp->individuos_lista[idx] = territorio->individuos[i];
+                idx++;
+            }
+        }
+    }
+    
+    //crear tabla 2D [dias][individuos] - memoizacion
+    dp->tabla = (EstadoDP**)malloc(dp->num_dias * sizeof(EstadoDP*));
+    for(int d = 0; d < dp->num_dias; d++){
+        dp->tabla[d] = (EstadoDP*)calloc(total, sizeof(EstadoDP));
+        for(int i = 0; i < total; i++){
+            dp->tabla[d][i].estado = ESTADO_SANO;
+            dp->tabla[d][i].dia_infeccion = -1;
+            dp->tabla[d][i].cepa_id = -1;
+        }
+    }
+    
+    return dp;
+}
+
+//liberar tabla dp
+void LiberarTablaDP(TablaDP *dp){
+    for(int d = 0; d < dp->num_dias; d++){
+        free(dp->tabla[d]);
+    }
+    free(dp->tabla);
+    free(dp->individuos_lista);
+    free(dp);
+}
+
+//inicializar dia 0 con estados actuales (caso base de la DP)
+void InicializarDia0(TablaDP *dp, Mapa *grafo){
+    for(int i = 0; i < dp->num_individuos; i++){
+        Individuo *ind = dp->individuos_lista[i];
+        if(ind->Infectado){
+            dp->tabla[0][i].estado = ESTADO_INFECTADO;
+            dp->tabla[0][i].dia_infeccion = ind->t_infeccion;
+            dp->tabla[0][i].cepa_id = ind->Cepa_ID;
+        } else if(ind->Recuperado){
+            dp->tabla[0][i].estado = ESTADO_RECUPERADO;
+        } else if(ind->Fallecido){
+            dp->tabla[0][i].estado = ESTADO_FALLECIDO;
+        }
+    }
+}
+
+//buscar indice de un individuo por su ID
+int BuscarIndiceIndividuo(TablaDP *dp, int id){
+    for(int i = 0; i < dp->num_individuos; i++){
+        if(dp->individuos_lista[i]->ID == id){
+            return i;
+        }
+    }
+    return -1;
+}
+
+//funcion de transicion dp: estado[d] = f(estado[d-1])
+//esta es la recurrencia de la programacion dinamica
+void TransicionDP(TablaDP *dp, Mapa *grafo, int dia){
+    //paso 1: copiar estados del dia anterior (subproblema anterior)
+    for(int i = 0; i < dp->num_individuos; i++){
+        dp->tabla[dia][i] = dp->tabla[dia-1][i];
         
-        for(int i = 0; i < territorio->num_individuos && num_nuevos < MAX_CONTAGIOS_DIA; i++){
-            Individuo *infectado = territorio->individuos[i];
-            
-            if(infectado == NULL || !infectado->Infectado || infectado->Fallecido) continue;
-            
-            Contacto *c = infectado->contactos;
-            int contactos_revisados = 0;
-            
-            while(c != NULL && contactos_revisados < 5 && num_nuevos < MAX_CONTAGIOS_DIA){
-                contactos_revisados++;
-                
-                Individuo *contacto = NULL;
-                
-                for(int j = 0; j < territorio->num_individuos; j++){
-                    if(territorio->individuos[j] != NULL && 
-                       territorio->individuos[j]->ID == c->v_individuo){
-                        contacto = territorio->individuos[j];
-                        break;
-                    }
-                }
-                
-                if(contacto == NULL){
-                    for(int t2 = 0; t2 < 3 && contacto == NULL; t2++){
-                        if(t2 == t) continue;
-                        Territorio *terr2 = &grafo->territorios[t2];
-                        for(int j = 0; j < terr2->num_individuos; j++){
-                            if(terr2->individuos[j] != NULL && 
-                               terr2->individuos[j]->ID == c->v_individuo){
-                                contacto = terr2->individuos[j];
-                                break;
-                            }
-                        }
-                    }
-                }
-                
-                if(contacto != NULL && !contacto->Infectado && 
-                   !contacto->Recuperado && !contacto->Fallecido){
-                    
-                    float prob_contagio = c->prob_contagio * 0.15;
-                    
-                    if(infectado->Cepa_ID >= 0 && infectado->Cepa_ID < NUM_CEPAS){
-                        prob_contagio *= grafo->cepas[infectado->Cepa_ID].Tasa_contagio;
-                    }
-                    
-                    if(Azar(0.0, 1.0) < prob_contagio){
-                        contacto->Infectado = 1;
-                        contacto->t_infeccion = 0;
-                        contacto->Cepa_ID = infectado->Cepa_ID;
-                        num_nuevos++;
-                    }
-                }
-                
-                c = c->sgt;
-            }
+        //incrementar tiempo de infeccion si esta infectado
+        if(dp->tabla[dia][i].estado == ESTADO_INFECTADO){
+            dp->tabla[dia][i].dia_infeccion++;
         }
     }
-}
-
-//actualiza el estado de cada individuo segun el tiempo transcurrido
-void ActualizarEstados(Mapa *grafo, int dia_actual){
-    for(int t = 0; t < NUM_TERRITORIOS; t++){
-        Territorio *territorio = &grafo->territorios[t];
-        for(int i = 0; i < territorio->num_individuos; i++){
-            Individuo *ind = territorio->individuos[i];
-            
-            if(ind != NULL && ind->Infectado && !ind->Fallecido){
-                ind->t_infeccion++;
-                
-                if(ind->Cepa_ID >= 0 && ind->Cepa_ID < NUM_CEPAS){
-                    Cepa *cepa = &grafo->cepas[ind->Cepa_ID];
-                    
-                    if(ind->t_infeccion >= cepa->Tiempo_recuperacion){
-                        ind->Infectado = 0;
-                        ind->Recuperado = 1;
-                        ind->Riesgo_inicial = 0.0;
-                    }
-                    else if(ind->t_infeccion > cepa->Tiempo_incubacion){
-                        float prob_muerte = cepa->Tasa_mortalidad * 0.02;
-                        if(Azar(0.0, 1.0) < prob_muerte){
-                            ind->Infectado = 0;
-                            ind->Fallecido = 1;
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-//muestra las estadisticas de un dia especifico
-void MostrarEstadoDia(Mapa *grafo, int dia){
-    int total_infectados = 0;
-    int total_recuperados = 0;
-    int total_fallecidos = 0;
-    int total_sanos = 0;
     
-    for(int t = 0; t < NUM_TERRITORIOS; t++){
-        Territorio *territorio = &grafo->territorios[t];
-        for(int i = 0; i < territorio->num_individuos; i++){
-            Individuo *ind = territorio->individuos[i];
-            if(ind != NULL){
-                if(ind->Infectado) total_infectados++;
-                else if(ind->Recuperado) total_recuperados++;
-                else if(ind->Fallecido) total_fallecidos++;
-                else total_sanos++;
+    //paso 2: procesar recuperaciones y fallecimientos
+    for(int i = 0; i < dp->num_individuos; i++){
+        EstadoDP *estado = &dp->tabla[dia][i];
+        
+        if(estado->estado == ESTADO_INFECTADO && estado->cepa_id >= 0){
+            Cepa *cepa = &grafo->cepas[estado->cepa_id];
+            
+            //recuperacion si paso suficiente tiempo
+            if(estado->dia_infeccion >= cepa->Tiempo_recuperacion){
+                estado->estado = ESTADO_RECUPERADO;
+            }
+            //posible muerte despues de incubacion
+            else if(estado->dia_infeccion > cepa->Tiempo_incubacion){
+                if(Azar(0.0, 1.0) < cepa->Tasa_mortalidad * 0.02){
+                    estado->estado = ESTADO_FALLECIDO;
+                }
             }
         }
     }
     
-    printf("\n[Día %3d] Sanos: %4d | Infectados: %4d | Recuperados: %4d | Fallecidos: %4d\n", 
-           dia, total_sanos, total_infectados, total_recuperados, total_fallecidos);
+    //paso 3: procesar nuevos contagios basados en estado del dia anterior
+    for(int i = 0; i < dp->num_individuos; i++){
+        //solo procesar si estaba infectado el dia anterior
+        if(dp->tabla[dia-1][i].estado != ESTADO_INFECTADO) continue;
+        
+        Individuo *infectado = dp->individuos_lista[i];
+        int cepa_id = dp->tabla[dia][i].cepa_id;
+        
+        //recorrer contactos del infectado
+        Contacto *c = infectado->contactos;
+        while(c != NULL){
+            int idx_contacto = BuscarIndiceIndividuo(dp, c->v_individuo);
+            
+            if(idx_contacto >= 0 && dp->tabla[dia][idx_contacto].estado == ESTADO_SANO){
+                float prob = c->prob_contagio * 0.15;
+                if(cepa_id >= 0 && cepa_id < NUM_CEPAS){
+                    prob *= grafo->cepas[cepa_id].Tasa_contagio;
+                }
+                
+                if(Azar(0.0, 1.0) < prob){
+                    dp->tabla[dia][idx_contacto].estado = ESTADO_INFECTADO;
+                    dp->tabla[dia][idx_contacto].dia_infeccion = 0;
+                    dp->tabla[dia][idx_contacto].cepa_id = cepa_id;
+                }
+            }
+            c = c->sgt;
+        }
+    }
 }
 
-void GenerarReportePropagacion(Mapa *grafo, int dia_actual){
+//contar estados en un dia especifico de la tabla dp
+void ContarEstadosDia(TablaDP *dp, int dia, int *sanos, int *infectados, int *recuperados, int *fallecidos){
+    *sanos = *infectados = *recuperados = *fallecidos = 0;
+    for(int i = 0; i < dp->num_individuos; i++){
+        switch(dp->tabla[dia][i].estado){
+            case ESTADO_SANO: (*sanos)++; break;
+            case ESTADO_INFECTADO: (*infectados)++; break;
+            case ESTADO_RECUPERADO: (*recuperados)++; break;
+            case ESTADO_FALLECIDO: (*fallecidos)++; break;
+        }
+    }
+}
+
+//mostrar estadisticas de un dia
+void MostrarEstadoDiaDP(TablaDP *dp, int dia){
+    int sanos, infectados, recuperados, fallecidos;
+    ContarEstadosDia(dp, dia, &sanos, &infectados, &recuperados, &fallecidos);
+    printf("[Día %3d] Sanos: %4d | Infectados: %4d | Recuperados: %4d | Fallecidos: %4d\n", 
+           dia, sanos, infectados, recuperados, fallecidos);
+}
+
+//sincronizar tabla dp con estructuras de individuos al final
+void SincronizarEstados(TablaDP *dp, int dia_final){
+    for(int i = 0; i < dp->num_individuos; i++){
+        Individuo *ind = dp->individuos_lista[i];
+        EstadoDP *estado = &dp->tabla[dia_final][i];
+        
+        ind->Infectado = (estado->estado == ESTADO_INFECTADO) ? 1 : 0;
+        ind->Recuperado = (estado->estado == ESTADO_RECUPERADO) ? 1 : 0;
+        ind->Fallecido = (estado->estado == ESTADO_FALLECIDO) ? 1 : 0;
+        ind->t_infeccion = estado->dia_infeccion;
+        ind->Cepa_ID = estado->cepa_id;
+        
+        if(ind->Recuperado){
+            ind->Riesgo_inicial = 0.0;
+        }
+    }
+}
+
+//generar reporte final de propagacion
+void GenerarReportePropagacion(TablaDP *dp, Mapa *grafo, int dia_final){
     printf("\n========== REPORTE FINAL ==========\n");
-    
     printf("Territorios afectados:\n");
     
     for(int t = 0; t < NUM_TERRITORIOS; t++){
@@ -1574,51 +1649,78 @@ void GenerarReportePropagacion(Mapa *grafo, int dia_actual){
         }
         
         if(infectados > 0 || recuperados > 0){
-            printf("%-20s: I=%d R=%d\n", territorio->Nombre, infectados, recuperados);
+            printf("  %-20s: I=%d R=%d\n", territorio->Nombre, infectados, recuperados);
         }
     }
     
     printf("===================================\n");
 }
 
-//avanza un dia en la simulacion procesando contagios y recuperaciones
-void AvanzarUnDia(Mapa *grafo, int dia_actual){
-    Propagar_Contagio(grafo);
-    ActualizarEstados(grafo, dia_actual);
-}
-
-//simula la propagacion del virus durante varios dias
+//simulacion completa con programacion dinamica (funcion principal)
 void SimularPropagacion(Mapa *grafo, int num_dias){
-    printf("\n========== SIMULACIÓN ==========\n");
+    printf("\n========== SIMULACIÓN CON PROGRAMACIÓN DINÁMICA ==========\n");
+    printf("Paradigma: Programación Dinámica (Bottom-Up)\n");
+    printf("Recurrencia: estado[d][i] = f(estado[d-1], contactos)\n");
+    printf("Memoización: Tabla 2D de estados por día\n");
+    printf("Complejidad: O(D × n) donde D=días, n=individuos\n\n");
     
-    int infectados_iniciales = ContarInfectadosActivos(grafo);
+    //crear tabla dp (memoizacion)
+    TablaDP *dp = CrearTablaDP(grafo, num_dias);
     
-    if(infectados_iniciales == 0){
-        printf("\nNo hay brote activo.\n");
+    printf("Tabla DP creada: %d días × %d individuos\n", dp->num_dias, dp->num_individuos);
+    printf("Memoria para memoización: %.2f KB\n\n", 
+           (float)(dp->num_dias * dp->num_individuos * sizeof(EstadoDP)) / 1024.0);
+    
+    //caso base: inicializar dia 0
+    InicializarDia0(dp, grafo);
+    
+    int sanos, infectados, recuperados, fallecidos;
+    ContarEstadosDia(dp, 0, &sanos, &infectados, &recuperados, &fallecidos);
+    
+    printf("--- Evolución de la epidemia ---\n");
+    MostrarEstadoDiaDP(dp, 0);
+    
+    if(infectados == 0){
+        printf("\nNo hay infectados iniciales.\n");
+        LiberarTablaDP(dp);
         return;
     }
     
-    printf("Infectados iniciales: %d\n", infectados_iniciales);
-    printf("Días: %d\n\n", num_dias);
+    int dia_final = num_dias;
     
-    MostrarEstadoDia(grafo, 0);
-    
+    //aplicar recurrencia DP para cada dia (bottom-up)
     for(int dia = 1; dia <= num_dias; dia++){
-        AvanzarUnDia(grafo, dia);
+        //transicion: estado[dia] = f(estado[dia-1])
+        TransicionDP(dp, grafo, dia);
         
-        if(dia % 2 == 0 || dia == num_dias){
-            MostrarEstadoDia(grafo, dia);
+        ContarEstadosDia(dp, dia, &sanos, &infectados, &recuperados, &fallecidos);
+        
+        //mostrar cada 2 dias o al final
+        if(dia % 2 == 0 || dia == num_dias || infectados == 0){
+            MostrarEstadoDiaDP(dp, dia);
         }
         
-        int infectados = ContarInfectadosActivos(grafo);
         if(infectados == 0){
-            printf("\n✓ Epidemia extinguida (día %d)\n", dia);
-            MostrarEstadoDia(grafo, dia);
+            printf("\n✓ Epidemia extinguida en día %d\n", dia);
+            dia_final = dia;
             break;
         }
     }
     
-    GenerarReportePropagacion(grafo, num_dias);
+    //sincronizar estados finales con estructuras originales
+    SincronizarEstados(dp, dia_final);
+    
+    //generar reporte
+    GenerarReportePropagacion(dp, grafo, dia_final);
+    
+    printf("\n--- Ventajas de Programación Dinámica ---\n");
+    printf("• Almacena historial completo (memoización)\n");
+    printf("• Evita recálculos de subproblemas\n");
+    printf("• Permite consultar cualquier día pasado\n");
+    
+    printf("\n==========================================================\n");
+    
+    LiberarTablaDP(dp);
 }
 
 //=============================================================
