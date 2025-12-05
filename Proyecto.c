@@ -223,6 +223,8 @@ void OrdenarPorGrado(Mapa *grafo);
 void OrdenarPorTerritorio(Mapa *grafo);
 //compara dos individuos por su nivel de riesgo
 int CompararPorRiesgo(const void *a, const void *b);
+void OrdenarPorTiempoInfeccionHeap(Mapa *grafo);
+void OrdenarPorNombreMerge(Mapa *grafo);
 //compara dos individuos por su grado de contactos
 int CompararPorGrado(const void *a, const void *b);
 //compara dos individuos por su territorio
@@ -398,9 +400,7 @@ void CountingSort(Mapa *grafo);
 //funcion principal del programa
 int main(int argc, char const *argv[]){
     srand(42);
-    
-    printf("=== Iniciando BioSim ===\n");
-    
+        
     //abrir conexion a la base de datos de nombres
     sqlite3 *db;
     int rc = sqlite3_open("Nombres.db", &db);
@@ -410,37 +410,24 @@ int main(int argc, char const *argv[]){
     }
     
     Mapa mundo;
-    printf("Inicializando grafo de territorios...\n");
     InicializarGrafo(&mundo);
     CrearConexiones(&mundo);
     
-    printf("Creando individuos en territorios...\n");
     for(int i = 0; i < NUM_TERRITORIOS; i++){
         CrearIndividuos(&mundo, i, db);
     }
     
-    printf("Inicializando %d cepas virales...\n", NUM_CEPAS);
     InicializarCepas(&mundo);
-    
-    printf("Generando red de contactos...\n");
     GenerarRedContactos(&mundo);
-    
-    printf("Inicializando 10 semillas de contagio...\n");
     InicializarSemillas(&mundo);
     AplicarSemillas(&mundo);
     
-    printf("\n=== Sistema inicializado correctamente ===\n");
-    printf("Territorios: %d\n", mundo.num_territorios);
-    printf("Conexiones: %d\n", mundo.num_conexiones);
     
     int total_individuos = 0;
     for(int i = 0; i < NUM_TERRITORIOS; i++){
         total_individuos += mundo.territorios[i].num_individuos;
     }
-    printf("Individuos totales: %d\n", total_individuos);
-    printf("Cepas: %d\n", mundo.num_cepas);
-    printf("Semillas iniciales: %d infectados\n", mundo.num_semillas);
-    
+
     int opcion = -1;
     
     while(opcion != 0){
@@ -461,31 +448,19 @@ int main(int argc, char const *argv[]){
                 
                 switch(opcion_fase1){
                     case 1:
-                        OrdenarPorRiesgoQuick(&mundo);
+                        OrdenarPorRiesgoQuick(&mundo); // Quick Sort
                         break;
                     case 2:
-                        OrdenarPorRiesgoMerge(&mundo);
+                        OrdenarPorTiempoInfeccionHeap(&mundo); // Heap Sort
                         break;
                     case 3:
-                        OrdenarPorRiesgoHeap(&mundo);
+                        OrdenarPorNombreMerge(&mundo); // Merge Sort
                         break;
                     case 4:
-                        CountingSort(&mundo);
+                        AnalisisDatos(&mundo); // Muestra informacion
                         break;
                     case 5:
-                        OrdenarPorTiempoInfeccion(&mundo);
-                        break;
-                    case 6:
-                        OrdenarPorNombre(&mundo);
-                        break;
-                    case 7:
-                        OrdenarPorTerritorio(&mundo);
-                        break;
-                    case 8:
-                        AnalisisDatos(&mundo);
-                        break;
-                    case 9:
-                        MostrarSemillas(&mundo);
+                        MostrarSemillas(&mundo); // Muestra semilla
                         break;
                     default:
                         printf("\nOpción inválida\n");
@@ -905,17 +880,24 @@ void InicializarGrafo(Mapa *grafo){
 
 //muestra el menu principal con las 8 fases del proyecto
 void MENU(){
-    printf("\n============ BioSim ============");
-    printf("\n[1] Inicializacion y analisis de datos");
-    printf("\n[2] Deteccion de brotes");
-    printf("\n[3] Propagacion temporal");
-    printf("\n[4] Minimizacion del riesgo total ");
-    printf("\n[5] Identificacion de rutas criticas");
-    printf("\n[6] Calculo de rutas optimas de contencion");
-    printf("\n[7] Clustering de cepas similares");
-    printf("\n[8] Almacenamiento eficiente y consulta rapida");
-    printf("\n[0] Salir");
-    printf("\n================================\n");
+    puts("╔══════════════════════════════════════════════════════════╗");
+    puts("║      ██████╗  ██╗  ██████╗  ███████╗ ██╗ ███╗   ███╗     ║");
+    puts("║      ██╔══██╗ ██╗ ██╔═══██╗ ██╔════╝ ██╗ ████╗ ████║     ║");
+    puts("║      ██████╔╝ ██╗ ██║   ██║ ███████╗ ██╗ ██╔████╔██║     ║");
+    puts("║      ██╔══██╗ ██╗ ██║   ██║ ╚════██║ ██╗ ██║╚██╔╝██║     ║");
+    puts("║      ██████╔╝ ██╗ ╚██████╔╝ ███████║ ██╗ ██║ ╚═╝ ██║     ║");
+    puts("║      ╚═════╝  ██╗  ╚═════╝  ╚══════╝ ██╗ ╚═╝     ╚═╝     ║");
+    puts("╠══════════════════════════════════════════════════════════╣");
+    puts("║ ▶ [1] Inicializacion y analisis de datos                 ║");
+    puts("║ ▶ [2] Deteccion de brotes                                ║");
+    puts("║ ▶ [3] Propagación temporal                               ║");
+    puts("║ ▶ [4] Minimizacion del riesgo total                      ║");
+    puts("║ ▶ [5] Identificacion de rutas criticas                   ║");
+    puts("║ ▶ [6] Rutas optimas de contencion                        ║");
+    puts("║ ▶ [7] Clustering de cepas similares                      ║");
+    puts("║ ▶ [8] Almacenamiento eficiente y consulta rapida         ║");
+    puts("║ ▶ [0] Salir                                              ║");
+    puts("╚══════════════════════════════════════════════════════════╝");
 }
 
 //agrega un individuo a un territorio si hay espacio disponible
@@ -2840,6 +2822,7 @@ void QuickSortNombre(IndividuoOrden *arr, int inicio, int fin){
 //=============================================================
 
 //combina dos subarreglos ordenados en uno solo
+//ordena por nombre alfabeticamente ASC
 void Merge(IndividuoOrden *arr, int inicio, int medio, int fin){
     int n1 = medio - inicio + 1;
     int n2 = fin - medio;
@@ -2857,8 +2840,9 @@ void Merge(IndividuoOrden *arr, int inicio, int medio, int fin){
     int i = 0, j = 0, k = inicio;
     
     while(i < n1 && j < n2){
-        // Orden descendente (mayor primero)
-        if(L[i].valor_orden >= R[j].valor_orden){
+        //orden ascendente alfabetico usando strcmp
+        //strcmp retorna < 0 si L[i] va antes que R[j]
+        if(strcmp(L[i].individuo->Nombre, R[j].individuo->Nombre) <= 0){
             arr[k] = L[i];
             i++;
         } else {
@@ -2894,11 +2878,11 @@ void MergeSort(IndividuoOrden *arr, int inicio, int fin){
     }
 }
 
-//ordena individuos por riesgo descendente usando mergesort
-void OrdenarPorRiesgoMerge(Mapa *grafo){
-    printf("\n========== MERGESORT POR RIESGO ==========\n");
-    printf("Complejidad: O(n log n) garantizado\n");
-    printf("Ventaja: Estable y predecible\n\n");
+//ordena individuos por nombre alfabeticamente ASC usando mergesort
+void OrdenarPorNombreMerge(Mapa *grafo){
+    printf("\n========== MERGESORT POR NOMBRE ==========\n");
+    printf("Complejidad: O(n log n * m) donde m es longitud promedio de nombres\n");
+    printf("Ventaja: Estable - preserva orden relativo de nombres iguales\n\n");
     
     int total = 0;
     for(int t = 0; t < NUM_TERRITORIOS; t++){
@@ -2918,24 +2902,37 @@ void OrdenarPorRiesgoMerge(Mapa *grafo){
         for(int i = 0; i < territorio->num_individuos; i++){
             if(territorio->individuos[i] != NULL){
                 lista[idx].individuo = territorio->individuos[i];
-                lista[idx].valor_orden = territorio->individuos[i]->Riesgo_inicial;
+                lista[idx].valor_orden = 0; //no se usa para ordenar por nombre
                 idx++;
             }
         }
     }
     
-    printf("Ordenando %d individuos con MergeSort...\n", idx);
+    printf("Ordenando %d individuos alfabeticamente con MergeSort...\n", idx);
     MergeSort(lista, 0, idx - 1);
     
-    printf("\n--- Top 15 MAYOR RIESGO ---\n");
-    for(int i = 0; i < 15 && i < idx; i++){
+    printf("\n--- Primeros 20 individuos (A-Z) ---\n");
+    for(int i = 0; i < 20 && i < idx; i++){
         Individuo *ind = lista[i].individuo;
-        printf("%3d. %s (%s) - %.4f\n",
-               i+1, ind->Nombre,
+        printf("%3d. %-25s | %s | Riesgo: %.3f\n",
+               i + 1,
+               ind->Nombre,
                grafo->territorios[ind->Territorio_ID].Nombre,
-               lista[i].valor_orden);
+               ind->Riesgo_inicial);
     }
     
+    printf("\n--- Últimos 10 individuos (Z) ---\n");
+    int inicio = idx > 10 ? idx - 10 : 0;
+    for(int i = inicio; i < idx; i++){
+        Individuo *ind = lista[i].individuo;
+        printf("%3d. %-25s | %s | Riesgo: %.3f\n",
+               i + 1,
+               ind->Nombre,
+               grafo->territorios[ind->Territorio_ID].Nombre,
+               ind->Riesgo_inicial);
+    }
+    
+    printf("\nTotal ordenados: %d individuos\n", idx);
     printf("\n==========================================\n");
     free(lista);
 }
@@ -2945,37 +2942,57 @@ void OrdenarPorRiesgoMerge(Mapa *grafo){
 //=============================================================
 
 //mantiene la propiedad heap en el subarbol con raiz en i
+//ordena por tiempo de infeccion ASC, no infectados (-1) al final
 void HeapifyOrdenamiento(IndividuoOrden *arr, int n, int i){
-    int largest = i;
+    int smallest = i;
     int left = 2 * i + 1;
     int right = 2 * i + 2;
     
-    // Para orden descendente, buscar el MENOR (min-heap)
-    if(left < n && arr[left].valor_orden < arr[largest].valor_orden){
-        largest = left;
+    //para orden ASC con -1 al final, usamos min-heap
+    //pero los -1 (no infectados) siempre son "mayores" que cualquier valor >= 0
+    
+    if(left < n){
+        //si smallest es -1, cualquier valor >= 0 es menor
+        if(arr[smallest].valor_orden < 0 && arr[left].valor_orden >= 0){
+            smallest = left;
+        }
+        //si left es -1, smallest sigue siendo menor (o igual si ambos -1)
+        else if(arr[left].valor_orden >= 0 && arr[smallest].valor_orden >= 0){
+            //ambos infectados, comparar normalmente
+            if(arr[left].valor_orden < arr[smallest].valor_orden){
+                smallest = left;
+            }
+        }
     }
     
-    if(right < n && arr[right].valor_orden < arr[largest].valor_orden){
-        largest = right;
+    if(right < n){
+        if(arr[smallest].valor_orden < 0 && arr[right].valor_orden >= 0){
+            smallest = right;
+        }
+        else if(arr[right].valor_orden >= 0 && arr[smallest].valor_orden >= 0){
+            if(arr[right].valor_orden < arr[smallest].valor_orden){
+                smallest = right;
+            }
+        }
     }
     
-    if(largest != i){
+    if(smallest != i){
         IndividuoOrden temp = arr[i];
-        arr[i] = arr[largest];
-        arr[largest] = temp;
+        arr[i] = arr[smallest];
+        arr[smallest] = temp;
         
-        HeapifyOrdenamiento(arr, n, largest);
+        HeapifyOrdenamiento(arr, n, smallest);
     }
 }
 
 //ordena el arreglo usando heapsort
 void HeapSort(IndividuoOrden *arr, int n){
-    // Construir heap
+    //construir min-heap
     for(int i = n / 2 - 1; i >= 0; i--){
         HeapifyOrdenamiento(arr, n, i);
     }
     
-    // Extraer elementos del heap
+    //extraer elementos del heap (de menor a mayor)
     for(int i = n - 1; i > 0; i--){
         IndividuoOrden temp = arr[0];
         arr[0] = arr[i];
@@ -2983,13 +3000,22 @@ void HeapSort(IndividuoOrden *arr, int n){
         
         HeapifyOrdenamiento(arr, i, 0);
     }
+    
+    //invertir para tener ASC (menores primero, -1 al final)
+    for(int i = 0; i < n / 2; i++){
+        IndividuoOrden temp = arr[i];
+        arr[i] = arr[n - 1 - i];
+        arr[n - 1 - i] = temp;
+    }
 }
 
-//ordena individuos por riesgo descendente usando heapsort
-void OrdenarPorRiesgoHeap(Mapa *grafo){
-    printf("\n========== HEAPSORT POR RIESGO ==========\n");
+//ordena individuos por tiempo de infeccion ASC usando heapsort
+//los no infectados (t_infeccion = -1) van al final
+void OrdenarPorTiempoInfeccionHeap(Mapa *grafo){
+    printf("\n========== HEAPSORT POR TIEMPO DE INFECCIÓN ==========\n");
     printf("Complejidad: O(n log n) garantizado\n");
-    printf("Ventaja: In-place, no requiere memoria extra\n\n");
+    printf("Ventaja: In-place, no requiere memoria extra\n");
+    printf("Orden: ASC (infectados primero por día, no infectados al final)\n\n");
     
     int total = 0;
     for(int t = 0; t < NUM_TERRITORIOS; t++){
@@ -3009,7 +3035,7 @@ void OrdenarPorRiesgoHeap(Mapa *grafo){
         for(int i = 0; i < territorio->num_individuos; i++){
             if(territorio->individuos[i] != NULL){
                 lista[idx].individuo = territorio->individuos[i];
-                lista[idx].valor_orden = territorio->individuos[i]->Riesgo_inicial;
+                lista[idx].valor_orden = territorio->individuos[i]->t_infeccion;
                 idx++;
             }
         }
@@ -3018,107 +3044,42 @@ void OrdenarPorRiesgoHeap(Mapa *grafo){
     printf("Ordenando %d individuos con HeapSort...\n", idx);
     HeapSort(lista, idx);
     
-    printf("\n--- Top 15 MAYOR RIESGO ---\n");
-    for(int i = 0; i < 15 && i < idx; i++){
-        Individuo *ind = lista[i].individuo;
-        printf("%3d. %s (%s) - %.4f\n",
-               i+1, ind->Nombre,
-               grafo->territorios[ind->Territorio_ID].Nombre,
-               lista[i].valor_orden);
-    }
-    
-    printf("\n==========================================\n");
-    free(lista);
-}
-
-//=============================================================
-//countingsort - o(n+k) lineal
-//=============================================================
-
-//ordena por grado usando counting sort - o(n+k)
-void CountingSort(Mapa *grafo){
-    printf("\n========== COUNTING SORT POR GRADO ==========\n");
-    printf("Complejidad: O(n + k) - Lineal\n");
-    printf("Ventaja: Muy rápido para rangos pequeños\n\n");
-    
-    int total = 0;
-    int max_grado = 0;
-    
-    // Encontrar máximo grado
-    for(int t = 0; t < NUM_TERRITORIOS; t++){
-        Territorio *territorio = &grafo->territorios[t];
-        for(int i = 0; i < territorio->num_individuos; i++){
-            if(territorio->individuos[i] != NULL){
-                total++;
-                int grado = territorio->individuos[i]->Grado_inicial;
-                if(grado > max_grado) max_grado = grado;
-            }
+    //contar infectados y no infectados
+    int infectados = 0;
+    int no_infectados = 0;
+    for(int i = 0; i < idx; i++){
+        if(lista[i].individuo->t_infeccion >= 0){
+            infectados++;
+        } else {
+            no_infectados++;
         }
     }
     
-    if(total == 0){
-        printf("No hay individuos.\n");
-        return;
-    }
-    
-    printf("Rango de grados: 0 - %d\n", max_grado);
-    printf("Total individuos: %d\n\n", total);
-    
-    // Crear array de conteo
-    int *count = (int*)calloc(max_grado + 1, sizeof(int));
-    
-    // Contar frecuencias
-    for(int t = 0; t < NUM_TERRITORIOS; t++){
-        Territorio *territorio = &grafo->territorios[t];
-        for(int i = 0; i < territorio->num_individuos; i++){
-            if(territorio->individuos[i] != NULL){
-                int grado = territorio->individuos[i]->Grado_inicial;
-                count[grado]++;
-            }
-        }
-    }
-    
-    // Mostrar distribución
-    printf("--- Distribución de Grados ---\n");
-    for(int g = max_grado; g >= 0; g--){
-        if(count[g] > 0){
-            printf("Grado %2d: %4d individuos ", g, count[g]);
-            
-            // Barra visual
-            int barras = count[g] / 5;
-            if(barras > 40) barras = 40;
-            for(int b = 0; b < barras; b++){
-                printf("█");
-            }
-            printf("\n");
-        }
-    }
-    
-    // Mostrar individuos de mayor grado
-    printf("\n--- Individuos con MAYOR GRADO ---\n");
+    printf("\n--- Infectados ordenados por tiempo de infección (ASC) ---\n");
     int mostrados = 0;
-    
-    for(int g = max_grado; g >= 0 && mostrados < 15; g--){
-        if(count[g] > 0){
-            for(int t = 0; t < NUM_TERRITORIOS && mostrados < 15; t++){
-                Territorio *territorio = &grafo->territorios[t];
-                for(int i = 0; i < territorio->num_individuos && mostrados < 15; i++){
-                    Individuo *ind = territorio->individuos[i];
-                    if(ind != NULL && ind->Grado_inicial == g){
-                        printf("%3d. %s (%s) - Grado: %d\n",
-                               mostrados + 1,
-                               ind->Nombre,
-                               territorio->Nombre,
-                               g);
-                        mostrados++;
-                    }
-                }
-            }
+    for(int i = 0; i < idx && mostrados < 20; i++){
+        Individuo *ind = lista[i].individuo;
+        if(ind->t_infeccion >= 0){
+            printf("%3d. %-20s | Día: %3d | Cepa: %s | %s\n",
+                   mostrados + 1,
+                   ind->Nombre,
+                   ind->t_infeccion,
+                   ind->Cepa_ID >= 0 ? grafo->cepas[ind->Cepa_ID].Nombre : "N/A",
+                   grafo->territorios[ind->Territorio_ID].Nombre);
+            mostrados++;
         }
     }
     
-    printf("\n=========================================\n");
-    free(count);
+    if(mostrados == 0){
+        printf("No hay individuos infectados.\n");
+    }
+    
+    printf("\n--- Resumen ---\n");
+    printf("Infectados: %d (ordenados ASC por día de infección)\n", infectados);
+    printf("No infectados: %d (al final de la lista)\n", no_infectados);
+    
+    printf("\n=======================================================\n");
+    free(lista);
 }
 
 //=============================================================
@@ -3264,15 +3225,11 @@ void OrdenarPorTerritorio(Mapa *grafo){
 //muestra el menu de opciones de ordenamiento
 void MenuOrdenamiento(Mapa *grafo){
     printf("\n========== ALGORITMOS DE ORDENAMIENTO ==========\n");
-    printf("1. QuickSort por riesgo DESC - O(n log n) promedio\n");
-    printf("2. MergeSort por riesgo DESC - O(n log n) garantizado\n");
-    printf("3. HeapSort por riesgo DESC - O(n log n) in-place\n");
-    printf("4. Counting Sort por grado - O(n + k) lineal\n");
-    printf("5. Ordenar por tiempo de infección ASC\n");
-    printf("6. Ordenar por nombre ASC\n");
-    printf("7. Ordenar por territorio\n");
-    printf("8. Análisis estadístico\n");
-    printf("9. Mostrar semillas iniciales\n");
+    printf("1. QuickSort para riesgo DESC\n");
+    printf("2. HeapSort  para tiempo ASC\n");
+    printf("3. MergeSort para nombre ASC\n");
+    printf("4. Análisis estadístico\n");
+    printf("5. Mostrar semillas iniciales\n");
     printf("Seleccione: ");
 }
 
